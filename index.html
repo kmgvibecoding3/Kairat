@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Контроль исполнения бюджета</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --bg:#F3F6F7; --surface:#FFFFFF; --ink:#15212B; --muted:#5A6B78; --line:#DCE3E7;
+  --primary:#0E5563; --primary-soft:#E3EEF0; --over:#B42318; --over-soft:#FCECEA;
+  --under:#9A6A12; --ok:#2E7D4F; --bar:#9FBFC6;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0F171C; --surface:#172229; --ink:#E6EDF0; --muted:#94A6B1; --line:#2A3A44;
+    --primary:#5FB3C3; --primary-soft:#1B3139; --over:#F0766A; --over-soft:#3A1E1C;
+    --under:#E0B352; --ok:#6CC592; --bar:#3F6D78;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0F171C; --surface:#172229; --ink:#E6EDF0; --muted:#94A6B1; --line:#2A3A44;
+  --primary:#5FB3C3; --primary-soft:#1B3139; --over:#F0766A; --over-soft:#3A1E1C;
+  --under:#E0B352; --ok:#6CC592; --bar:#3F6D78;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Onest",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+  font-size:15px;line-height:1.5;font-variant-numeric:tabular-nums}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 20px 60px}
+h1{font-size:clamp(1.7rem,3.4vw,2.4rem);line-height:1.1;margin:0;font-weight:700;letter-spacing:-.02em}
+h2{font-size:1.15rem;margin:0 0 4px;font-weight:600}
+p{margin:0}
+.muted{color:var(--muted)}
+button,input{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+
+/* header */
+.top{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-end;justify-content:space-between;
+  padding-bottom:22px;border-bottom:2px solid var(--ink);margin-bottom:26px}
+.top p{margin-top:8px;max-width:60ch}
+.rate{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--line);
+  border-radius:10px;padding:10px 14px}
+.rate label{font-weight:600;white-space:nowrap}
+.rate input{width:110px;border:1px solid var(--line);border-radius:6px;padding:6px 8px;background:var(--bg);text-align:right;font-weight:600}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.btn{border:1px solid var(--line);background:var(--surface);padding:8px 14px;border-radius:8px;cursor:pointer;font-weight:500}
+.btn:hover{border-color:var(--primary)}
+.btn.primary{background:var(--primary);border-color:var(--primary);color:var(--surface)}
+
+/* uploads */
+.uploads{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px;margin-bottom:28px}
+.cur{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px}
+.cur-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px}
+.code{font-weight:700;color:var(--primary)}
+.slots{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.slot{position:relative;border:1.5px dashed var(--line);border-radius:10px;padding:14px 12px;min-height:96px;
+  display:flex;flex-direction:column;gap:4px;cursor:pointer;transition:border-color .15s,background .15s}
+.slot:hover,.slot.drag{border-color:var(--primary);background:var(--primary-soft)}
+.slot.loaded{border-style:solid;border-color:var(--primary)}
+.slot input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.slot strong{font-weight:600}
+.slot .st{font-size:.85rem;color:var(--muted);word-break:break-word}
+.slot .clr{position:relative;z-index:2;align-self:flex-start;margin-top:auto;border:0;background:none;
+  color:var(--muted);padding:0;cursor:pointer;font-size:.85rem;text-decoration:underline}
+.hint{font-size:.85rem;color:var(--muted);margin-top:12px}
+
+/* summary */
+.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));background:var(--surface);
+  border:1px solid var(--line);border-radius:12px;margin-bottom:28px;overflow:hidden}
+.summary div{padding:16px 18px;border-right:1px solid var(--line)}
+.summary div:last-child{border-right:0}
+.summary span{display:block;font-size:.85rem;color:var(--muted)}
+.summary b{display:block;font-size:1.35rem;font-weight:700;margin-top:2px;white-space:nowrap}
+.summary small{color:var(--muted)}
+
+/* overspend */
+.over{background:var(--over-soft);border:1px solid var(--over);border-left-width:6px;border-radius:12px;
+  padding:18px 20px;margin-bottom:28px}
+.over h2{color:var(--over)}
+.over .empty{color:var(--ink)}
+.over table td,.over table th{border-color:color-mix(in srgb,var(--over) 22%,transparent)}
+
+/* tables */
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:0;flex-wrap:wrap}
+.tab{border:0;background:none;padding:10px 16px;cursor:pointer;font-weight:500;color:var(--muted);
+  border-bottom:2px solid transparent;margin-bottom:-1px}
+.tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--primary);font-weight:600}
+.panel{background:var(--surface);border:1px solid var(--line);border-top:0;border-radius:0 0 12px 12px;padding:6px 0 0}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;min-width:760px}
+th,td{padding:10px 14px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-weight:600;font-size:.85rem;color:var(--muted)}
+th:first-child,td:first-child{text-align:left;white-space:normal;min-width:200px}
+tbody tr:hover{background:var(--primary-soft)}
+tbody tr.is-over{background:var(--over-soft)}
+tbody tr.is-over:hover{background:color-mix(in srgb,var(--over) 16%,var(--surface))}
+tr.is-over td:first-child{box-shadow:inset 4px 0 0 var(--over);font-weight:600}
+.tag.warn{background:none;color:var(--over);border:1px solid var(--over)}
+.filter{display:flex;align-items:center;gap:8px;margin:0 0 12px;cursor:pointer;font-weight:500}
+.filter input{width:18px;height:18px;accent-color:var(--over)}
+.cnt{display:inline-block;min-width:20px;padding:0 6px;margin-left:6px;border-radius:10px;background:var(--over);color:var(--surface);font-size:.75rem;font-weight:600;text-align:center}
+tfoot td{font-weight:700;border-bottom:0;border-top:2px solid var(--ink)}
+.pos{color:var(--over);font-weight:600}
+.neg{color:var(--ok)}
+.tag{display:inline-block;font-size:.75rem;padding:1px 7px;border-radius:20px;background:var(--over);color:var(--surface);margin-left:6px;vertical-align:1px}
+.cur-tag{font-size:.8rem;font-weight:600;color:var(--primary)}
+
+/* execution bar: scale 0–150%, tick at 100% */
+.ex{display:flex;align-items:center;gap:10px;justify-content:flex-end}
+.ex b{min-width:60px;font-weight:600}
+.bar{position:relative;width:120px;height:8px;background:var(--line);border-radius:4px;overflow:hidden;flex:none}
+.bar i{position:absolute;top:0;bottom:0;left:0;background:var(--bar)}
+.bar i.o{background:var(--over)}
+.bar::after{content:"";position:absolute;top:-2px;bottom:-2px;left:66.667%;width:2px;background:var(--ink)}
+/* justifications */
+.just{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:28px}
+.just-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:8px 20px;margin-bottom:6px}
+.just-head .prog{font-weight:600}
+.just-note{font-size:.85rem;color:var(--muted);margin-bottom:14px;max-width:80ch}
+.jgroup{margin-top:18px}
+.jgroup h3{font-size:1rem;margin:0 0 10px;font-weight:600}
+.jgroup.o h3{color:var(--over)} .jgroup.u h3{color:var(--under)}
+.jitem{border:1px solid var(--line);border-left:4px solid var(--over);border-radius:10px;padding:12px 14px;margin-bottom:10px;background:var(--bg)}
+.jgroup.u .jitem{border-left-color:var(--under)}
+.jitem.done{border-left-color:var(--ok)}
+.jtop{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 16px;margin-bottom:8px}
+.jtop strong{font-weight:600}
+.jnums{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:.88rem;color:var(--muted)}
+.jnums b{color:var(--ink);font-weight:600} .jnums b.pos{color:var(--over)}
+.jitem textarea{width:100%;min-height:64px;resize:vertical;border:1px solid var(--line);border-radius:8px;padding:8px 10px;
+  background:var(--surface);color:var(--ink);font:inherit;line-height:1.45}
+.jitem textarea:focus{border-color:var(--primary)}
+.jstat{font-size:.8rem;color:var(--muted);margin-top:4px;min-height:1.2em}
+.jstat.err{color:var(--over)}
+.jcell{max-width:260px;white-space:normal;text-align:left!important;font-size:.88rem}
+.jlink{border:0;background:none;padding:0;font:inherit;font-size:.85rem;cursor:pointer;text-decoration:underline;font-weight:600}
+.jlink.o{color:var(--over)} .jlink.u{color:var(--under)}
+.jtext{color:var(--ink);cursor:pointer}
+.rate + .rate{margin-left:0}
+.controls{display:flex;flex-wrap:wrap;gap:10px}
+.rate input.small{width:70px}
+.empty-state{padding:36px 20px;text-align:center;color:var(--muted)}
+footer{margin-top:22px;font-size:.85rem;color:var(--muted)}
+@media (max-width:560px){.slots{grid-template-columns:1fr}.summary div{border-right:0;border-bottom:1px solid var(--line)}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Контроль исполнения бюджета</h1>
+      <p class="muted">Загрузите план и факт в тенге и долларах — отклонения, процент исполнения и статьи с превышением рассчитаются автоматически.</p>
+    </div>
+    <div class="controls">
+      <div class="rate">
+        <label for="rate">Курс USD/KZT</label>
+        <input id="rate" type="number" min="0" step="0.01" value="500" inputmode="decimal">
+      </div>
+      <div class="rate" title="Статьи, исполненные ниже (100 − порог)%, требуют обоснования неисполнения">
+        <label for="thr">Порог неисполнения, %</label>
+        <input id="thr" class="small" type="number" min="0" max="100" step="1" value="5" inputmode="decimal">
+      </div>
+    </div>
+  </header>
+
+  <section class="uploads" aria-label="Загрузка данных">
+    <div class="cur">
+      <div class="cur-head"><h2>Бюджет в тенге</h2><span class="code">KZT</span></div>
+      <div class="slots">
+        <div class="slot" data-key="planKZT"><input type="file" accept=".xlsx,.xls,.csv" aria-label="Загрузить план KZT"><strong>План бюджета</strong><span class="st">Выберите или перетащите файл</span></div>
+        <div class="slot" data-key="factKZT"><input type="file" accept=".xlsx,.xls,.csv" aria-label="Загрузить факт KZT"><strong>Факт исполнения</strong><span class="st">Выберите или перетащите файл</span></div>
+      </div>
+    </div>
+    <div class="cur">
+      <div class="cur-head"><h2>Бюджет в долларах</h2><span class="code">USD</span></div>
+      <div class="slots">
+        <div class="slot" data-key="planUSD"><input type="file" accept=".xlsx,.xls,.csv" aria-label="Загрузить план USD"><strong>План бюджета</strong><span class="st">Выберите или перетащите файл</span></div>
+        <div class="slot" data-key="factUSD"><input type="file" accept=".xlsx,.xls,.csv" aria-label="Загрузить факт USD"><strong>Факт исполнения</strong><span class="st">Выберите или перетащите файл</span></div>
+      </div>
+    </div>
+  </section>
+  <div class="actions" style="margin:-12px 0 28px">
+    <button class="btn primary" id="demo">Показать на примере</button>
+    <button class="btn" id="reset">Очистить всё</button>
+  </div>
+
+  <section class="summary" id="summary" aria-label="Итоги"></section>
+
+  <section class="over" id="over" aria-live="polite"></section>
+
+  <section class="just" id="just" aria-label="Обоснование отклонений" hidden></section>
+
+  <section aria-label="Детализация">
+    <label class="filter"><input type="checkbox" id="onlyOver"> Показывать только статьи с превышением бюджета</label>
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" data-tab="KZT" aria-selected="true">Тенге<span class="cnt" hidden></span></button>
+      <button class="tab" role="tab" data-tab="USD" aria-selected="false">Доллары<span class="cnt" hidden></span></button>
+      <button class="tab" role="tab" data-tab="ALL" aria-selected="false">Сводно в тенге<span class="cnt" hidden></span></button>
+    </div>
+    <div class="panel" id="panel"></div>
+  </section>
+
+  <footer>
+    Формат файла: Excel (.xlsx, .xls) или CSV. Первая строка — заголовки. Нужны столбец со статьёй («Статья», «Наименование») и столбец с суммой («Сумма», «План», «Факт»). Статьи плана и факта сопоставляются по названию; одинаковые названия суммируются. Отклонение = факт − план: положительное значение означает превышение бюджета. Шкала исполнения — от 0 до 150%, вертикальная черта отмечает 100%. Обоснования привязаны к названию статьи и валюте: при загрузке нового файла с теми же статьями они сохранятся.
+  </footer>
+</div>
+
+<script>
+const LS = 'budget-control-v1';
+const state = { planKZT:null, factKZT:null, planUSD:null, factUSD:null, tab:'KZT', onlyOver:false };
+const $ = s => document.querySelector(s);
+const rateEl = $('#rate'); const thrEl = $('#thr');
+const JLS = 'budget-control-just-v1';
+const just = {};            // id -> {text, name, cur, kind, updatedAt}
+let db = null, jCol = null;
+const thr = () => { const t = parseFloat(String(thrEl.value).replace(',','.')); return t>=0 ? t : 5; };
+function hid(s){ let h=0x811c9dc5; for (const ch of s){ h^=ch.codePointAt(0); h=Math.imul(h,0x01000193)>>>0 } return h.toString(16).padStart(8,'0'); }
+const jid = (cur,name) => cur + '-' + hid(norm(name));
+// kind: 'o' = превышение, 'u' = неисполнение, null = в пределах
+const kindOf = x => x.dev>0 ? 'o' : (x.plan>0 && x.pct!=null && x.pct < 100 - thr()) ? 'u' : null;
+
+const fmt = (n, d=0) => (n==null||isNaN(n)) ? '—' :
+  n.toLocaleString('ru-RU',{minimumFractionDigits:d,maximumFractionDigits:d});
+const fmtSigned = (n,d=0) => (n>0?'+':'') + fmt(n,d);
+const rate = () => { const r = parseFloat(String(rateEl.value).replace(',','.')); return r>0 ? r : 0; };
+const norm = s => String(s).trim().replace(/\s+/g,' ').toLowerCase();
+
+function toNum(v){
+  if (typeof v === 'number') return v;
+  if (v==null) return NaN;
+  const s = String(v).replace(/[\s\u00a0]/g,'').replace(/[^\d,.\-]/g,'');
+  if (!s) return NaN;
+  const t = s.includes(',') && !s.includes('.') ? s.replace(',','.') : s.replace(/,/g,'');
+  return parseFloat(t);
+}
+
+/* Parse sheet rows → {name, key, amount}[] */
+function parseRows(rows){
+  rows = rows.filter(r => r && r.some(c => c!=='' && c!=null));
+  if (!rows.length) throw new Error('Файл пустой');
+  let hIdx = rows.findIndex(r => r.some(c => typeof c==='string' && isNaN(toNum(c))));
+  if (hIdx < 0) hIdx = 0;
+  const head = rows[hIdx].map(c => norm(c ?? ''));
+  const body = rows.slice(hIdx+1);
+  let iName = head.findIndex(h => /стат|наимен|назв|item|name|стать/.test(h));
+  let iAmt = head.findIndex(h => /сумм|план|факт|amount|итог|kzt|usd|тенге|доллар|value/.test(h));
+  if (iName < 0) iName = 0;
+  if (iAmt < 0 || iAmt === iName){
+    iAmt = head.findIndex((_,i) => i!==iName && body.some(r => !isNaN(toNum(r[i]))));
+  }
+  if (iAmt < 0) throw new Error('Не найден столбец с суммой');
+  const map = new Map();
+  for (const r of body){
+    const name = r[iName]; const amt = toNum(r[iAmt]);
+    if (name==null || String(name).trim()==='' || isNaN(amt)) continue;
+    if (/^(итого|всего|total)/i.test(String(name).trim())) continue;
+    const key = norm(name);
+    if (map.has(key)) map.get(key).amount += amt;
+    else map.set(key,{name:String(name).trim(), key, amount:amt});
+  }
+  if (!map.size) throw new Error('Не найдено строк со статьёй и суммой');
+  return [...map.values()];
+}
+
+function readFile(file){
+  return new Promise((res,rej) => {
+    const fr = new FileReader();
+    fr.onerror = () => rej(new Error('Не удалось прочитать файл'));
+    fr.onload = e => {
+      try{
+        const wb = XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        res(parseRows(XLSX.utils.sheet_to_json(ws,{header:1,defval:''})));
+      }catch(err){ rej(err) }
+    };
+    fr.readAsArrayBuffer(file);
+  });
+}
+
+/* Merge plan & fact for a currency */
+function merge(plan, fact, cur){
+  const out = new Map();
+  (plan||[]).forEach(p => out.set(p.key,{name:p.name,plan:p.amount,fact:0,inPlan:true}));
+  (fact||[]).forEach(f => {
+    if (out.has(f.key)) out.get(f.key).fact += f.amount;
+    else out.set(f.key,{name:f.name,plan:0,fact:f.amount,inPlan:false});
+  });
+  return [...out.values()].map(r => ({...r, cur, id:jid(cur,r.name), dev:r.fact-r.plan, pct: r.plan ? r.fact/r.plan*100 : null}));
+}
+const totals = rows => rows.reduce((a,r)=>({plan:a.plan+r.plan,fact:a.fact+r.fact}),{plan:0,fact:0});
+
+function execCell(pct, fact){
+  if (pct==null) return fact>0 ? '<span class="pos">вне плана</span>' : '—';
+  const base = Math.min(pct,100)/150*100;
+  const over = pct>100 ? (Math.min(pct,150)-100)/150*100 : 0;
+  return `<div class="ex"><b class="${pct>100?'pos':''}">${fmt(pct,1)}%</b>
+    <span class="bar" role="img" aria-label="Исполнение ${fmt(pct,1)}%"><i style="width:${base}%"></i>${over?`<i class="o" style="left:${base}%;width:${over}%"></i>`:''}</span></div>`;
+}
+
+function hasAny(){ return state.planKZT||state.factKZT||state.planUSD||state.factUSD }
+
+function render(){
+  const r = rate();
+  const kzt = merge(state.planKZT,state.factKZT,'KZT');
+  const usd = merge(state.planUSD,state.factUSD,'USD');
+  const tK = totals(kzt), tU = totals(usd);
+  const planAll = tK.plan + tU.plan*r, factAll = tK.fact + tU.fact*r;
+  const overRows = [
+    ...kzt.filter(x=>x.dev>0).map(x=>({...x,cur:'KZT',devKZT:x.dev})),
+    ...usd.filter(x=>x.dev>0).map(x=>({...x,cur:'USD',devKZT:x.dev*r}))
+  ].sort((a,b)=>b.devKZT-a.devKZT);
+
+  // summary
+  const pctAll = planAll ? factAll/planAll*100 : null;
+  $('#summary').innerHTML = hasAny() ? `
+    <div><span>План, тенге экв.</span><b>${fmt(planAll)}</b><small>USD по курсу ${fmt(r,2)}</small></div>
+    <div><span>Факт, тенге экв.</span><b>${fmt(factAll)}</b></div>
+    <div><span>Отклонение</span><b class="${factAll-planAll>0?'pos':'neg'}">${fmtSigned(factAll-planAll)}</b></div>
+    <div><span>Исполнение</span><b>${pctAll==null?'—':fmt(pctAll,1)+'%'}</b></div>
+    <div><span>Статей с превышением</span><b class="${overRows.length?'pos':''}">${overRows.length}</b><small>из ${kzt.length+usd.length}</small></div>`
+    : `<div><span>Итоги</span><b class="muted" style="font-size:1rem;font-weight:500;white-space:normal">Появятся после загрузки плана или факта</b></div>`;
+
+  // overspend
+  const ov = $('#over');
+  if (!hasAny()){ ov.hidden = true; }
+  else {
+    ov.hidden = false;
+    ov.innerHTML = overRows.length ? `
+      <h2>Превышение бюджета: ${overRows.length} ${plural(overRows.length,'статья','статьи','статей')}</h2>
+      <p style="margin-bottom:10px">Сумма превышения — ${fmt(overRows.reduce((s,x)=>s+x.devKZT,0))} тенге в эквиваленте. Статьи отсортированы по размеру превышения.</p>
+      <div class="scroll"><table>
+        <thead><tr><th>Статья</th><th>Валюта</th><th>План</th><th>Факт</th><th>Превышение</th><th>Превышение, тенге экв.</th><th>Исполнение</th><th>Обоснование</th></tr></thead>
+        <tbody>${overRows.map(x=>{const d=x.cur==='USD'?2:0;return `<tr>
+          <td>${esc(x.name)}${x.inPlan?'':'<span class="tag">нет в плане</span>'}</td>
+          <td><span class="cur-tag">${x.cur}</span></td>
+          <td>${fmt(x.plan,d)}</td><td>${fmt(x.fact,d)}</td>
+          <td class="pos">${fmtSigned(x.dev,d)}</td><td class="pos">${fmtSigned(x.devKZT)}</td>
+          <td>${execCell(x.pct,x.fact)}</td>${jCell(x)}</tr>`}).join('')}</tbody></table></div>`
+      : `<h2 style="color:var(--ok)">Превышений нет</h2><p class="empty">Все статьи исполнены в пределах плана.</p>`;
+    ov.style.borderColor = overRows.length ? '' : 'var(--ok)';
+    ov.style.background = overRows.length ? '' : 'var(--surface)';
+  }
+
+  // tabs
+  const counts = {KZT:kzt.filter(x=>x.dev>0).length, USD:usd.filter(x=>x.dev>0).length};
+  counts.ALL = counts.KZT + counts.USD;
+  document.querySelectorAll('.tab').forEach(b=>{
+    b.setAttribute('aria-selected',b.dataset.tab===state.tab);
+    const c=b.querySelector('.cnt'); const n=counts[b.dataset.tab];
+    c.hidden=!n; c.textContent=n; c.title=n?`Статей с превышением: ${n}`:'';
+  });
+  $('#onlyOver').checked = state.onlyOver;
+  const flt = rows => state.onlyOver ? rows.filter(x=>x.dev>0) : rows;
+  const panel = $('#panel');
+  if (state.tab==='ALL'){
+    const rows = [...kzt.map(x=>({...x,cur:'KZT',k:1})),...usd.map(x=>({...x,cur:'USD',k:r}))];
+    const shown = flt(rows);
+    panel.innerHTML = !rows.length ? empty('Загрузите данные хотя бы по одной валюте') : !shown.length ? empty('В этом разделе нет статей с превышением бюджета') : table(shown.map(x=>({...x,plan:x.plan*x.k,fact:x.fact*x.k,dev:x.dev*x.k})),0,true,
+      totals(shown.map(x=>({plan:x.plan*x.k,fact:x.fact*x.k}))), false, state.onlyOver);
+  } else {
+    const rows = state.tab==='KZT'?kzt:usd; const shown = flt(rows);
+    panel.innerHTML = !rows.length ? empty(`Загрузите план или факт бюджета в ${state.tab==='KZT'?'тенге':'долларах'}`)
+      : !shown.length ? empty('В этом разделе нет статей с превышением бюджета')
+      : table(shown, state.tab==='USD'?2:0, false, state.onlyOver?totals(shown):(state.tab==='KZT'?tK:tU), state.tab==='USD', state.onlyOver);
+  }
+  renderJust([...kzt,...usd]);
+}
+
+function jCell(x){
+  const k = kindOf(x);
+  if (!k) return '<td class="jcell muted">—</td>';
+  const t = (just[x.id]?.text||'').trim();
+  if (t) return `<td class="jcell"><span class="jtext" data-go="${x.id}" title="${esc(t)}">${esc(t.length>80?t.slice(0,80)+'…':t)}</span></td>`;
+  return `<td class="jcell"><button class="jlink ${k}" data-go="${x.id}">Добавить обоснование</button></td>`;
+}
+
+function renderJust(all){
+  const sec = $('#just');
+  const items = all.map(x=>({...x,kind:kindOf(x)})).filter(x=>x.kind);
+  if (!hasAny()){ sec.hidden = true; return; }
+  sec.hidden = false;
+  // don't rebuild while someone is typing inside
+  if (sec.contains(document.activeElement) && document.activeElement.tagName==='TEXTAREA') {
+    updateProgress(items); return;
+  }
+  const r = rate();
+  const byDevKZT = (a,b)=>Math.abs(b.dev*(b.cur==='USD'?r:1))-Math.abs(a.dev*(a.cur==='USD'?r:1));
+  const over = items.filter(x=>x.kind==='o').sort(byDevKZT);
+  const under = items.filter(x=>x.kind==='u').sort(byDevKZT);
+  const card = x => {
+    const d = x.cur==='USD'?2:0; const t = just[x.id]?.text||'';
+    const upd = just[x.id]?.updatedAt ? 'Сохранено ' + new Date(just[x.id].updatedAt).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
+    return `<div class="jitem ${t.trim()?'done':''}" id="j-${x.id}">
+      <div class="jtop"><strong>${esc(x.name)} <span class="cur-tag">${x.cur}</span></strong>
+        <span class="jnums"><span>План <b>${fmt(x.plan,d)}</b></span><span>Факт <b>${fmt(x.fact,d)}</b></span>
+        <span>Отклонение <b class="${x.dev>0?'pos':''}">${fmtSigned(x.dev,d)}</b></span>
+        <span>Исполнение <b>${x.pct==null?'вне плана':fmt(x.pct,1)+'%'}</b></span></span></div>
+      <label class="sr" for="ta-${x.id}" style="position:absolute;left:-9999px">Обоснование: ${esc(x.name)}</label>
+      <textarea id="ta-${x.id}" data-id="${x.id}" data-name="${esc(x.name)}" data-cur="${x.cur}" data-kind="${x.kind}"
+        placeholder="${x.kind==='o'?'Причина превышения: например, рост тарифов, внеплановые работы, изменение курса…':'Причина неисполнения: например, перенос закупки, экономия по итогам тендера, задержка поставки…'}">${esc(t)}</textarea>
+      <div class="jstat" id="st-${x.id}">${upd}</div></div>`;
+  };
+  sec.innerHTML = `
+    <div class="just-head"><h2>Обоснование отклонений</h2><span class="prog" id="jprog"></span></div>
+    <p class="just-note">Обоснование требуется для статей с превышением бюджета и для статей, исполненных ниже ${fmt(100-thr(),0)}% плана. Текст сохраняется автоматически${db?' и виден коллегам, которым вы откроете доступ к странице':' в этом браузере'}.</p>
+    ${items.length ? '' : '<p>Все статьи исполнены в допустимых пределах — обоснования не требуются.</p>'}
+    ${over.length ? `<div class="jgroup o"><h3>Превышение бюджета — ${over.length}</h3>${over.map(card).join('')}</div>`:''}
+    ${under.length ? `<div class="jgroup u"><h3>Неисполнение бюджета — ${under.length}</h3>${under.map(card).join('')}</div>`:''}`;
+  updateProgress(items);
+}
+function updateProgress(items){
+  const p = $('#jprog'); if (!p) return;
+  const n = items.filter(x=>(just[x.id]?.text||'').trim()).length;
+  p.textContent = items.length ? `Заполнено ${n} из ${items.length}` : '';
+  p.style.color = items.length && n===items.length ? 'var(--ok)' : '';
+}
+
+/* saving */
+const timers = {};
+async function saveJust(ta){
+  const id = ta.dataset.id, text = ta.value;
+  const rec = {text, name:ta.dataset.name, cur:ta.dataset.cur, kind:ta.dataset.kind, updatedAt:Date.now()};
+  if ((just[id]?.text||'') === text) return;
+  just[id] = rec;
+  const st = document.getElementById('st-'+id);
+  ta.closest('.jitem').classList.toggle('done', !!text.trim());
+  if (st){ st.className='jstat'; st.textContent='Сохранение…'; }
+  try{
+    if (jCol) await jCol.doc(id).set(rec);
+    else localStorage.setItem(JLS, JSON.stringify(just));
+    if (st) st.textContent = 'Сохранено ' + new Date(rec.updatedAt).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+  }catch(e){
+    if (st){ st.className='jstat err'; st.textContent = e?.code==='invalid_argument' ? 'Нет прав на изменение обоснований' : 'Не удалось сохранить. Попробуйте ещё раз.'; }
+  }
+  refreshTables();
+}
+function refreshTables(){ // update table cells without touching the justification section
+  const a = document.activeElement; render(); if (a && a.isConnected) a.focus();
+}
+document.addEventListener('input', e=>{
+  if (e.target.matches('.jitem textarea')){
+    const ta=e.target; clearTimeout(timers[ta.dataset.id]);
+    timers[ta.dataset.id]=setTimeout(()=>saveJust(ta),900);
+  }
+});
+document.addEventListener('focusout', e=>{
+  if (e.target.matches('.jitem textarea')){ clearTimeout(timers[e.target.dataset.id]); saveJust(e.target).then(()=>setTimeout(render,0)); }
+});
+document.addEventListener('click', e=>{
+  const g = e.target.closest('[data-go]'); if (!g) return;
+  const ta = document.getElementById('ta-'+g.dataset.go);
+  if (ta){ ta.scrollIntoView({behavior: matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth', block:'center'}); ta.focus({preventScroll:true}); }
+});
+
+async function initJust(){
+  try{ const s = JSON.parse(localStorage.getItem(JLS)||'null'); if (s) Object.assign(just,s); }catch(e){}
+  render();
+  try{ db = window.claude?.use ? await window.claude.use('db') : null; }catch(e){ db = null; }
+  if (!db) return;
+  jCol = db.collection('justifications');
+  jCol.onSnapshot(snap=>{
+    snap.docChanges().forEach(ch=>{
+      if (ch.type==='removed') delete just[ch.doc.id];
+      else {
+        just[ch.doc.id] = ch.doc.data();
+        const ta = document.getElementById('ta-'+ch.doc.id);
+        if (ta && document.activeElement!==ta) ta.value = ch.doc.data().text||'';
+      }
+    });
+    render();
+  }, ()=>{});
+}
+
+function table(rows,d,showCur,t,showEq,partial){
+  const r = rate(); const dev = t.fact-t.plan; const pct = t.plan? t.fact/t.plan*100 : null;
+  return `<div class="scroll"><table>
+    <thead><tr><th>Статья</th>${showCur?'<th>Валюта</th>':''}<th>План</th><th>Факт</th><th>Отклонение</th><th>Исполнение</th>${showEq?'<th>Отклонение, тенге экв.</th>':''}<th style="text-align:left">Обоснование</th></tr></thead>
+    <tbody>${rows.map(x=>`<tr class="${x.dev>0?'is-over':''}">
+      <td>${esc(x.name)}${x.inPlan?'':'<span class="tag">нет в плане</span>'}${x.dev>0&&x.inPlan?'<span class="tag warn">превышение</span>':''}</td>
+      ${showCur?`<td><span class="cur-tag">${x.cur}</span></td>`:''}
+      <td>${fmt(x.plan,d)}</td><td>${fmt(x.fact,d)}</td>
+      <td class="${x.dev>0?'pos':x.dev<0?'neg':''}">${fmtSigned(x.dev,d)}</td>
+      <td>${execCell(x.pct,x.fact)}</td>
+      ${showEq?`<td class="${x.dev>0?'pos':x.dev<0?'neg':''}">${fmtSigned(x.dev*r)}</td>`:''}${jCell(x)}</tr>`).join('')}</tbody>
+    <tfoot><tr><td>${partial?'Итого по статьям с превышением':'Итого'}</td>${showCur?'<td></td>':''}<td>${fmt(t.plan,d)}</td><td>${fmt(t.fact,d)}</td>
+      <td class="${dev>0?'pos':'neg'}">${fmtSigned(dev,d)}</td><td>${execCell(pct,t.fact)}</td>
+      ${showEq?`<td class="${dev>0?'pos':'neg'}">${fmtSigned(dev*r)}</td>`:''}<td></td></tr></tfoot>
+  </table></div>`;
+}
+const empty = m => `<div class="empty-state">${m}</div>`;
+const esc = s => String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function plural(n,a,b,c){const m=n%10,h=n%100;return m===1&&h!==11?a:m>=2&&m<=4&&(h<10||h>=20)?b:c}
+
+function setSlot(key, data, label){
+  state[key] = data;
+  const el = document.querySelector(`.slot[data-key="${key}"]`);
+  el.classList.toggle('loaded', !!data);
+  el.querySelector('.st').textContent = data ? `${label} — ${data.length} ${plural(data.length,'статья','статьи','статей')}` : 'Выберите или перетащите файл';
+  let c = el.querySelector('.clr');
+  if (data && !c){
+    c = document.createElement('button'); c.className='clr'; c.type='button'; c.textContent='Удалить';
+    c.onclick = e => { e.preventDefault(); e.stopPropagation(); setSlot(key,null); save(); render(); };
+    el.appendChild(c);
+  } else if (!data && c) c.remove();
+  el._label = label;
+}
+
+async function handle(el, file){
+  const key = el.dataset.key;
+  try{ const data = await readFile(file); setSlot(key,data,file.name); }
+  catch(err){ setSlot(key,null); el.querySelector('.st').textContent = `Ошибка: ${err.message}. Проверьте столбцы «Статья» и «Сумма».`; }
+  save(); render();
+}
+
+document.querySelectorAll('.slot').forEach(el=>{
+  const inp = el.querySelector('input');
+  inp.addEventListener('change',()=>{ if(inp.files[0]) handle(el,inp.files[0]); inp.value=''; });
+  ['dragenter','dragover'].forEach(ev=>el.addEventListener(ev,e=>{e.preventDefault();el.classList.add('drag')}));
+  ['dragleave','drop'].forEach(ev=>el.addEventListener(ev,e=>{e.preventDefault();el.classList.remove('drag')}));
+  el.addEventListener('drop',e=>{ const f=e.dataTransfer.files[0]; if(f) handle(el,f); });
+});
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{state.tab=b.dataset.tab;save();render()});
+rateEl.addEventListener('input',()=>{save();render()});
+thrEl.addEventListener('input',()=>{save();render()});
+$('#onlyOver').addEventListener('change',e=>{state.onlyOver=e.target.checked;save();render()});
+
+const mk = arr => arr.map(([name,amount])=>({name,key:norm(name),amount}));
+$('#demo').onclick = () => {
+  setSlot('planKZT',mk([['Фонд оплаты труда',185000000],['Аренда офиса',36000000],['Коммунальные услуги',7200000],['Командировочные расходы',12500000],['Маркетинг и реклама',24000000],['Обучение персонала',6000000],['Налоги и сборы',41000000],['Канцелярия и хозтовары',2400000]]),'Пример: план KZT');
+  setSlot('factKZT',mk([['Фонд оплаты труда',182400000],['Аренда офиса',36000000],['Коммунальные услуги',8150000],['Командировочные расходы',14900000],['Маркетинг и реклама',17300000],['Обучение персонала',3200000],['Налоги и сборы',40250000],['Канцелярия и хозтовары',2950000],['Представительские расходы',1850000]]),'Пример: факт KZT');
+  setSlot('planUSD',mk([['Лицензии ПО',120000],['Облачные сервисы',84000],['Оборудование (импорт)',210000],['Консалтинговые услуги',60000],['Подписки и базы данных',18000]]),'Пример: план USD');
+  setSlot('factUSD',mk([['Лицензии ПО',134500],['Облачные сервисы',79200],['Оборудование (импорт)',196000],['Консалтинговые услуги',72800],['Подписки и базы данных',18000]]),'Пример: факт USD');
+  save(); render();
+};
+$('#reset').onclick = () => { ['planKZT','factKZT','planUSD','factUSD'].forEach(k=>setSlot(k,null)); save(); render(); };
+
+function save(){
+  try{
+    const labels = {}; document.querySelectorAll('.slot').forEach(el=>labels[el.dataset.key]=el._label||'');
+    localStorage.setItem(LS, JSON.stringify({rate:rateEl.value, thr:thrEl.value, tab:state.tab, onlyOver:state.onlyOver, labels,
+      data:{planKZT:state.planKZT,factKZT:state.factKZT,planUSD:state.planUSD,factUSD:state.factUSD}}));
+  }catch(e){}
+}
+function load(){
+  try{
+    const s = JSON.parse(localStorage.getItem(LS)||'null'); if(!s) return;
+    if (s.rate) rateEl.value = s.rate;
+    if (s.thr) thrEl.value = s.thr;
+    if (s.tab) state.tab = s.tab;
+    state.onlyOver = !!s.onlyOver;
+    Object.entries(s.data||{}).forEach(([k,v])=>{ if(v) setSlot(k,v,(s.labels||{})[k]||'Загружено'); });
+  }catch(e){}
+}
+load(); initJust();
+</script>
+</body>
+</html>
